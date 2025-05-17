@@ -151,7 +151,7 @@ class MangaBakaTalker(ComicTalker):
     attribution: str = f"Metadata provided by <a href='{website}'>{name}</a>"
     about: str = (
         f"<a href='{website}'>{name}</a> collates and cleanses the data from multiple sources: AniList, Kitsu, "
-        f"MangaDex, MangaUpdates, MyAnimeList."
+        f"MangaDex, MangaUpdates, MyAnimeList and Anime News Network."
     )
 
     def __init__(self, version: str, cache_folder: pathlib.Path):
