@@ -4,7 +4,7 @@ A plugin for [Comic Tagger](https://github.com/comictagger/comictagger/releases)
 
 ## Installation
 
-The easiest installation method as of ComicTagger 1.6.0-alpha.23 for the plugin is to place the [release](https://github.com/mizaki/mangabaka_talker/releases) zip file
+The easiest installation method as of ComicTagger 1.6.0-beta6 for the plugin is to place the [release](https://github.com/mizaki/mangabaka_talker/releases) zip file
 `mangabaka_talker-plugin-<version>.zip` (or wheel `.whl`) into the [plugins](https://github.com/comictagger/comictagger/wiki/Installing-plugins) directory.
 
 ## Development Installation
