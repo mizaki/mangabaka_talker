@@ -40,7 +40,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-MBTYPES = ["manga", "novel", "manhwa", "manhua", "oel", "other"]
+MBTYPES = ["", "manga", "novel", "manhwa", "manhua", "oel", "other"]
 MBSTATUS = ["cancelled", "completed", "hiatus", "releasing", "unknown", "upcoming"]
 MBSTATE = ["active", "merged", "deleted"]
 
@@ -197,7 +197,7 @@ class MangaBakaTalker(ComicTalker):
         parser.add_setting(
             "--mb-filter-type",
             default="",
-            metavar="".join(MBTYPES).upper(),
+            choices=MBTYPES,
             display_name="Filter for only type",
             help="Filter out all other 'types' other than selected",
         )
@@ -254,17 +254,18 @@ class MangaBakaTalker(ComicTalker):
             if len(cached_search_results) > 0:
                 # Unpack to apply any filters
                 json_cache: list[MBSeries] = [json.loads(x[0].data) for x in cached_search_results]
+                if self.filter_type:
+                    json_cache = self._filter_type(json_cache)
                 if self.filter_nsfw:
                     json_cache = self._filter_nsfw(json_cache)
                 if self.filter_dojin:
                     json_cache = self._filter_dojin(json_cache)
-                if self.filter_type:
-                    json_cache = self._filter_type(json_cache)
 
                 return self._format_search_results(json_cache)
 
         params: dict[str, Any] = {
             "q": search_series_name,
+            "include_nsfw": "true",
             "page": 1,
             "limit": 50,
         }
@@ -305,12 +306,12 @@ class MangaBakaTalker(ComicTalker):
         )
 
         # Filter any tags AFTER adding to cache
+        if self.filter_type:
+            search_results = self._filter_type(search_results)
         if self.filter_nsfw:
             search_results = self._filter_nsfw(search_results)
         if self.filter_dojin:
             search_results = self._filter_dojin(search_results)
-        if self.filter_type:
-            search_results = self._filter_type(search_results)
 
         formatted_search_results = self._format_search_results(search_results)
 
