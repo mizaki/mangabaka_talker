@@ -277,28 +277,15 @@ class MangaBakaTalker(ComicTalker):
 
         search_results: list[MBSeries] = []
 
-        total_result_count = mb_response["pagination"]["count"]
+        logger.debug(
+            f"Found {mb_response['pagination']['limit'] * mb_response['pagination']['page']} of "
+            f"{mb_response['pagination']['count']} results"
+        )
+        search_results.extend(s for s in mb_response["results"])
 
         # 1. Don't fetch more than some sane amount of pages.
         # 2. Halt when any result on the current page is less than or equal to a set ratio using thefuzz
-        max_results = 250  # 5 pages
-
-        current_result_count = mb_response["pagination"]["limit"] * mb_response["pagination"]["page"]
-        total_result_count = min(total_result_count, max_results)
-
-        if callback is None:
-            logger.debug(
-                f"Found {mb_response['pagination']['limit'] * mb_response['pagination']['page']} of "
-                f"{mb_response['pagination']['count']} results"
-            )
-        search_results.extend(s for s in mb_response["results"])
-        page = 1
-
-        if callback is not None:
-            callback(current_result_count, total_result_count)
-
-        # see if we need to keep asking for more pages...
-        while current_result_count < total_result_count:
+        while mb_response["pagination"]["next"] is not None and mb_response["pagination"]["page"] < 6:
             if not literal:
                 # Stop searching once any entry falls below the threshold
                 stop_searching = any(
@@ -309,17 +296,9 @@ class MangaBakaTalker(ComicTalker):
                 if stop_searching:
                     break
 
-            if callback is None:
-                logger.debug(f"getting another page of results {current_result_count} of {total_result_count}...")
-            page += 1
-
-            params["page"] = page
-            mb_response = self._get_mb_content(urljoin(self.api_url, "series/search"), params)
+            mb_response = self._get_mb_content(mb_response["pagination"]["next"], {})
 
             search_results.extend(s for s in mb_response["results"])
-
-            if callback is not None:
-                callback(current_result_count, total_result_count)
 
         # Cache raw data. It's considered "full" for our purposes
         cvc.add_search_results(
