@@ -224,15 +224,11 @@ class MangaBakaTalker(ComicTalker):
         if not url:
             url = self.default_api_url
 
-        url.join("/series/10023")
-
         try:
-            mb_response = requests.get(
-                url,
-                headers={"user-agent": "comictagger/" + self.version},
-            ).json()
+            test_url = urljoin(url, "series/10023")
+            mb_response = requests.get(test_url, headers={"user-agent": "comictagger/" + self.version}).json()
 
-            if mb_response["status"] == 200:
+            if mb_response.get("id") == 10023:
                 return "The URL is valid", True
             else:
                 return "The URL is INVALID!", False
