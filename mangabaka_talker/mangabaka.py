@@ -159,7 +159,6 @@ class MangaBakaTalker(ComicTalker):
         # Settings
         self.default_api_url = self.api_url = "https://api.mangabaka.dev/v1/"
         self.use_series_start_as_volume: bool = False
-        self.use_search_title: bool = False
         self.use_original_publisher: bool = False
         self.filter_nsfw: bool = False
         self.filter_dojin: bool = False
@@ -173,13 +172,6 @@ class MangaBakaTalker(ComicTalker):
             default=False,
             action=argparse.BooleanOptionalAction,
             display_name="Use series start as volume",
-        )
-        parser.add_setting(
-            "--mb-use-search-title",
-            default=False,
-            action=argparse.BooleanOptionalAction,
-            display_name="Use search title",
-            help="Use search title result instead of the English title",
         )
         parser.add_setting(
             "--mb-use-original-publisher",
@@ -220,7 +212,6 @@ class MangaBakaTalker(ComicTalker):
         settings = super().parse_settings(settings)
 
         self.use_series_start_as_volume = settings["mb_use_series_start_as_volume"]
-        self.use_search_title = settings["mb_use_search_title"]
         self.use_original_publisher = settings["mb_use_original_publisher"]
         self.filter_nsfw = settings["mb_filter_nsfw"]
         self.filter_type = settings["mb_filter_type"]
