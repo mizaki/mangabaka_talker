@@ -243,7 +243,7 @@ class MangaBakaTalker(ComicTalker):
         literal: bool = False,
         series_match_thresh: int = 90,
     ) -> list[ComicSeries]:
-        search_series_name = utils.sanitize_title(series_name, literal)
+        search_series_name = series_name
         logger.info(f"{self.name} searching: {search_series_name}")
 
         # Before we search online, look in our cache, since we might have done this same search recently
