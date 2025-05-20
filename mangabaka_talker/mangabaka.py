@@ -91,7 +91,7 @@ class MBSeries(TypedDict, total=False):
     title: str
     native_title: str
     romanized_title: str
-    secondary_titles: dict[str, list[str]]
+    secondary_titles: dict[str, list[dict[str, str]]]
     cover: MBImageURL
     authors: list[str]
     artists: list[str]
@@ -396,16 +396,22 @@ class MangaBakaTalker(ComicTalker):
 
         return formatted_results
 
+    def _format_secondary_titles(self, titles: dict[str, list[dict[str, str]]]) -> set[str]:
+        aliases = set()
+        for alias in titles.values():
+            if alias is not None:
+                for a in alias:
+                    aliases.add(a["title"])
+
+        return aliases
+
     def _format_series(self, series: MBSeries) -> ComicSeries:
         aliases = set()
         if series.get("native_title") is not None:
             aliases.add(series["native_title"])
         if series.get("romanized_title") is not None:
             aliases.add(series["romanized_title"])
-        for alias in series["secondary_titles"].values():
-            if alias is not None:
-                for a in alias:
-                    aliases.add(a)
+        aliases.update(self._format_secondary_titles(series["secondary_titles"]))
 
         start_year: int | None = None
         if series.get("year"):
@@ -504,10 +510,7 @@ class MangaBakaTalker(ComicTalker):
             md.series_aliases.add(series["native_title"])
         if series.get("romanized_title") is not None:
             md.series_aliases.add(series["romanized_title"])
-        for alias in series["secondary_titles"].values():
-            if alias is not None:
-                for a in alias:
-                    md.series_aliases.add(a)
+        md.series_aliases.update(self._format_secondary_titles(series["secondary_titles"]))
 
         publisher_list = []
         if series["publishers"] is not None:
