@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 MBTYPES = ["", "manga", "novel", "manhwa", "manhua", "oel", "other"]
 MBSTATUS = ["cancelled", "completed", "hiatus", "releasing", "unknown", "upcoming"]
 MBSTATE = ["active", "merged", "deleted"]
+MBRATING = ["safe", "suggestive", "erotica", "pornographic"]
 
 
 class MBImageURL(TypedDict):
@@ -101,7 +102,7 @@ class MBSeries(TypedDict, total=False):
     is_licensed: bool
     has_anime: bool
     anime: MBAnime | None
-    is_nsfw: bool
+    content_rating: str  # safe, suggestive, erotica, pornographic
     type: str
     rating: int
     final_volume: str | None
@@ -160,9 +161,10 @@ class MangaBakaTalker(ComicTalker):
         self.default_api_url = self.api_url = "https://api.mangabaka.dev/v1/"
         self.use_series_start_as_volume: bool = False
         self.use_original_publisher: bool = False
-        self.filter_nsfw: bool = False
         self.filter_dojin: bool = False
         self.filter_type: str = ""
+        self.age_filter: str = "safe"
+        self.age_filter_range: list[str] = []
 
         self.total_requests_made: int = 0
 
@@ -181,11 +183,11 @@ class MangaBakaTalker(ComicTalker):
             help="Use the original publisher instead of English language publisher",
         )
         parser.add_setting(
-            "--mb-filter-nsfw",
-            default=False,
-            action=argparse.BooleanOptionalAction,
-            display_name="Filter out NSFW results",
-            help="Filter out NSFW from the search results (Genre: Adult and Hentai)",
+            "--mb-age-filter",
+            default="safe",
+            choices=MBRATING,
+            display_name="Age rating filter:",
+            help="Select the level of age rating filtering. *Not guaranteed, relies on correct tagging*",
         )
         parser.add_setting(
             "--mb-filter-dojin",
@@ -213,9 +215,12 @@ class MangaBakaTalker(ComicTalker):
 
         self.use_series_start_as_volume = settings["mb_use_series_start_as_volume"]
         self.use_original_publisher = settings["mb_use_original_publisher"]
-        self.filter_nsfw = settings["mb_filter_nsfw"]
+        self.age_filter = settings["mb_age_filter"]
         self.filter_type = settings["mb_filter_type"]
         self.filter_dojin = settings["mb_filter_dojin"]
+
+        # Create a filter with all accepted age rating
+        self.age_filter_range = MBRATING[: MBRATING.index(self.age_filter) + 1]
 
         return settings
 
@@ -254,10 +259,10 @@ class MangaBakaTalker(ComicTalker):
             if len(cached_search_results) > 0:
                 # Unpack to apply any filters
                 json_cache: list[MBSeries] = [json.loads(x[0].data) for x in cached_search_results]
+                # Always have to filter
+                json_cache = self._filter_nsfw(json_cache)
                 if self.filter_type:
                     json_cache = self._filter_type(json_cache)
-                if self.filter_nsfw:
-                    json_cache = self._filter_nsfw(json_cache)
                 if self.filter_dojin:
                     json_cache = self._filter_dojin(json_cache)
 
@@ -265,7 +270,7 @@ class MangaBakaTalker(ComicTalker):
 
         params: dict[str, Any] = {
             "q": search_series_name,
-            "include_nsfw": "true",
+            "content_rating": ["safe", "suggestive", "erotica", "pornographic"],
             "page": 1,
             "limit": 50,
         }
@@ -306,10 +311,9 @@ class MangaBakaTalker(ComicTalker):
         )
 
         # Filter any tags AFTER adding to cache
+        search_results = self._filter_nsfw(search_results)
         if self.filter_type:
             search_results = self._filter_type(search_results)
-        if self.filter_nsfw:
-            search_results = self._filter_nsfw(search_results)
         if self.filter_dojin:
             search_results = self._filter_dojin(search_results)
 
@@ -443,7 +447,7 @@ class MangaBakaTalker(ComicTalker):
     def _filter_nsfw(self, search_results: list[MBSeries]) -> list[MBSeries]:
         filtered_list = []
         for series in search_results:
-            if not series["is_nsfw"]:
+            if series["content_rating"] in self.age_filter_range:
                 filtered_list.append(series)
 
         return filtered_list
@@ -541,8 +545,8 @@ class MangaBakaTalker(ComicTalker):
             for tag in series["tags"]:
                 md.tags.add(tag)
 
-        if series["is_nsfw"]:
-            md.maturity_rating = "R18+"
+        if series["content_rating"]:
+            md.maturity_rating = series["content_rating"].capitalize()
 
         md.count_of_volumes = utils.xlate_int(series["final_volume"])
         md.count_of_issues = utils.xlate_int(series["final_chapter"])
