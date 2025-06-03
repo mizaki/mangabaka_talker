@@ -21,7 +21,7 @@ import json
 import logging
 import pathlib
 import time
-from typing import Any, Callable, TypedDict, TypeVar, cast
+from typing import Any, Callable, TypedDict, cast
 from urllib.parse import urlencode, urljoin
 
 import settngs
@@ -125,18 +125,11 @@ class MBPagination(TypedDict):
     previous: str | None
 
 
-class MBError(TypedDict):
-    code: int
-    message: str
-
-
-class MBSearch(TypedDict):
+class MBResult(TypedDict, total=False):
     status: int
+    message: str
     pagination: MBPagination
-    results: list[MBSeries]
-
-
-MBResult = TypeVar("MBResult", MBSearch, MBSeries)
+    data: list[MBSeries] | MBSeries
 
 
 # MangaUpdates states: You will use reasonable spacing between requests so as not to overwhelm the MangaUpdates servers
@@ -275,15 +268,15 @@ class MangaBakaTalker(ComicTalker):
             "limit": 50,
         }
 
-        mb_response: MBSearch = self._get_mb_content(urljoin(self.api_url, "series/search"), params)
-
+        mb_response: MBResult = self._get_mb_content(urljoin(self.api_url, "series/search"), params)
+        mb_data: list[MBSeries] = cast(list[MBSeries], mb_response["data"])
         search_results: list[MBSeries] = []
 
         logger.debug(
             f"Found {mb_response['pagination']['limit'] * mb_response['pagination']['page']} of "
             f"{mb_response['pagination']['count']} results"
         )
-        search_results.extend(s for s in mb_response["results"])
+        search_results.extend(s for s in mb_data)
 
         # 1. Don't fetch more than some sane amount of pages.
         # 2. Halt when any result on the current page is less than or equal to a set ratio using thefuzz
@@ -291,16 +284,15 @@ class MangaBakaTalker(ComicTalker):
             if not literal:
                 # Stop searching once any entry falls below the threshold
                 stop_searching = any(
-                    not utils.titles_match(search_series_name, volume["title"], series_match_thresh)
-                    for volume in mb_response["results"]
+                    not utils.titles_match(search_series_name, manga["title"], series_match_thresh) for manga in mb_data
                 )
 
                 if stop_searching:
                     break
 
             mb_response = self._get_mb_content(mb_response["pagination"]["next"], {})
-
-            search_results.extend(s for s in mb_response["results"])
+            mb_data = cast(list[MBSeries], mb_response["data"])
+            search_results.extend(s for s in mb_data)
 
         # Cache raw data. It's considered "full" for our purposes
         cvc.add_search_results(
@@ -339,8 +331,12 @@ class MangaBakaTalker(ComicTalker):
         return [GenericMetadata()]
 
     def _get_mb_content(self, url: str, params: dict[str, Any]) -> MBResult:
-        # All results are a success and contain data
-        return self._get_url_content(url, params)
+        mb_response: MBResult = self._get_url_content(url, params)
+        if mb_response["status"] != 200:
+            logger.debug(f"{self.name} query failed with error #{mb_response['status']}:  [{mb_response['message']}].")
+            raise TalkerNetworkError(self.name, 0, f"{mb_response['status']}: {mb_response['message']}")
+
+        return mb_response
 
     def _get_url_content(self, url: str, params: dict[str, Any]) -> Any:
         # if there is a 500 error, try a few more times before giving up
@@ -421,15 +417,7 @@ class MangaBakaTalker(ComicTalker):
         if series.get("year"):
             start_year = utils.xlate_int(series["year"])
 
-        publisher = None
-        if series["publishers"] is not None:
-            publisher_list = []
-            for pub in series["publishers"]:
-                if self.use_original_publisher and pub["type"] == "Original":
-                    publisher_list.append(pub["name"])
-                elif pub["type"] == "English":
-                    publisher_list.append(pub["name"])
-            publisher = ", ".join(publisher_list)
+        publisher = self._filter_publishers(series["publishers"])
 
         return ComicSeries(
             aliases=aliases,
@@ -443,6 +431,19 @@ class MangaBakaTalker(ComicTalker):
             count_of_volumes=series.get("final_volume"),
             format=series["type"],
         )
+
+    def _filter_publishers(self, publishers: list[MBPublisher] | None) -> str | None:
+        if publishers is None:
+            return None
+
+        publisher_list = []
+        for pub in publishers:
+            if self.use_original_publisher and pub["type"] == "Original":
+                publisher_list.append(pub["name"])
+            elif not self.use_original_publisher and pub["type"] == "English":
+                publisher_list.append(pub["name"])
+
+        return ", ".join(publisher_list)
 
     def _filter_nsfw(self, search_results: list[MBSeries]) -> list[MBSeries]:
         filtered_list = []
@@ -480,16 +481,17 @@ class MangaBakaTalker(ComicTalker):
             return json.loads(cached_series[0].data)
 
         series_url = urljoin(self.api_url, f"series/{series_id}")
-        mb_response: MBSeries = cast(MBSeries, self._get_mb_content(series_url, {}))
+        mb_response: MBResult = self._get_mb_content(series_url, {})
+        mb_data: MBSeries = cast(MBSeries, mb_response["data"])
 
         # Cache raw data
         cvc.add_series_info(
             self.id,
-            CCSeries(id=str(series_id), data=json.dumps(mb_response).encode("utf-8")),
+            CCSeries(id=str(series_id), data=json.dumps(mb_data).encode("utf-8")),
             True,
         )
 
-        return mb_response
+        return mb_data
 
     def fetch_issues_by_series_issue_num_and_year(
         self, series_id_list: list[str], issue_number: str, year: str | int | None
@@ -516,15 +518,7 @@ class MangaBakaTalker(ComicTalker):
             md.series_aliases.add(series["romanized_title"])
         md.series_aliases.update(self._format_secondary_titles(series["secondary_titles"]))
 
-        publisher_list = []
-        if series["publishers"] is not None:
-            for pub in series["publishers"]:
-                if not self.use_original_publisher and pub["type"] == "English":
-                    publisher_list.append(pub["name"])
-                elif self.use_original_publisher and pub["type"] == "Original":
-                    publisher_list.append(pub["name"])
-
-        md.publisher = ", ".join(publisher_list)
+        md.publisher = self._filter_publishers(series["publishers"])
 
         if series["authors"] is not None:
             for author in series["authors"]:
