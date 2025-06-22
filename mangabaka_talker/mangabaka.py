@@ -139,7 +139,7 @@ limiter = Limiter(RequestRate(10, Duration.SECOND))
 class MangaBakaTalker(ComicTalker):
     name: str = "MangaBaka"
     id: str = "mangabaka"
-    comictagger_min_ver: str = "1.6.0b6"
+    comictagger_min_ver: str = "1.6.0b5"
     logo_url: str = "https://mangabaka.dev/images/logo.png"
     website: str = "https://mangabaka.dev"
     attribution: str = f"Metadata provided by <a href='{website}'>{name}</a>"
