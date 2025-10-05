@@ -20,6 +20,7 @@ import argparse
 import json
 import logging
 import pathlib
+import tarfile
 import time
 from typing import Any, Callable, TypedDict, cast
 from urllib.parse import urlencode, urljoin
@@ -163,38 +164,43 @@ class MangaBakaTalker(ComicTalker):
 
     def register_settings(self, parser: settngs.Manager) -> None:
         parser.add_setting(
-            "--mb-use-series-start-as-volume",
+            f"--{self.id}-use-series-start-as-volume",
             default=False,
             action=argparse.BooleanOptionalAction,
             display_name="Use series start as volume",
         )
         parser.add_setting(
-            "--mb-use-original-publisher",
+            f"--{self.id}-use-original-publisher",
             default=False,
             action=argparse.BooleanOptionalAction,
             display_name="Use the original publisher",
             help="Use the original publisher instead of English language publisher",
         )
         parser.add_setting(
-            "--mb-age-filter",
+            f"--{self.id}-age-filter",
             default="safe",
             choices=MBRATING,
             display_name="Age rating filter:",
             help="Select the level of age rating filtering. *Not guaranteed, relies on correct tagging*",
         )
         parser.add_setting(
-            "--mb-filter-dojin",
+            f"--{self.id}-filter-dojin",
             default=True,
             action=argparse.BooleanOptionalAction,
             display_name="Filter out dojin results",
             help="Filter out dojin from the search results (Genre: Doujinshi)",
         )
         parser.add_setting(
-            "--mb-filter-type",
+            f"--{self.id}-filter-type",
             default="",
             choices=MBTYPES,
             display_name="Filter for only type",
             help="Filter out all other 'types' other than selected",
+        )
+        parser.add_setting(
+            f"--{self.id}-download",
+            display_name="Download SQLite MangaBaka DB",
+            help="Download the SQLite MangaBaka DB to the cache directory",
         )
         parser.add_setting(
             f"--{self.id}-url",
@@ -232,6 +238,32 @@ class MangaBakaTalker(ComicTalker):
                 return "The URL is INVALID!", False
         except Exception:
             return "Failed to connect to the URL!", False
+
+    def download_file(self, settings: dict[str, Any], cache_path: pathlib.Path) -> tuple[str, bool]:
+        url = talker_utils.fix_url(settings[f"{self.id}_url"])
+        if not url:
+            url = self.default_api_url
+
+        try:
+            test_url = urljoin(url, "database/series.sqlite.tar.gz")
+            temp_tar_path = cache_path / "series.sqlite.tar.gz"
+            with requests.get(test_url, stream=True, headers={"user-agent": f"comictagger/{self.version}"}) as r:
+                if r.status_code != 200:
+                    return "Failed to download file!", False
+                with open(temp_tar_path, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+
+            try:
+                with tarfile.open(temp_tar_path, "r:gz") as tar:
+                    tar.extractall(path=cache_path)
+                return "Successfully downloaded MB DB file", True
+            except Exception as e:
+                logger.error("Failed to extract MB DB file: %s", e)
+                return f"Failed to extract MB DB file: {e}", False
+        except Exception as e:
+            logger.debug("Failed to download MB DB %s", e)
+            return f"Failed to connect to the URL! {e}", False
 
     def search_for_series(
         self,
