@@ -30,8 +30,8 @@ from comicapi.genericmetadata import ComicSeries, GenericMetadata, ImageHash, Me
 from comictalker import talker_utils
 from comictalker.comiccacher import ComicCacher
 from comictalker.comiccacher import Series as CCSeries
-from comictalker.comictalker import ComicTalker, TalkerDataError, TalkerError, TalkerNetworkError
-from pyrate_limiter import Duration, Limiter, RequestRate
+from comictalker.comictalker import ComicTalker, RLCallBack, TalkerDataError, TalkerError, TalkerNetworkError
+from comictalker.vendor.pyrate_limiter import Duration, Limiter, RequestRate
 
 try:
     import niquests as requests
@@ -132,14 +132,14 @@ class MBResult(TypedDict, total=False):
     data: list[MBSeries] | MBSeries
 
 
-# MangaUpdates states: You will use reasonable spacing between requests so as not to overwhelm the MangaUpdates servers
-limiter = Limiter(RequestRate(10, Duration.SECOND))
+# https://mangabaka.dev/api
+limiter = Limiter(RequestRate(60, Duration.MINUTE))
 
 
 class MangaBakaTalker(ComicTalker):
     name: str = "MangaBaka"
     id: str = "mangabaka"
-    comictagger_min_ver: str = "1.6.0b5"
+    comictagger_min_ver: str = "1.6.0b7"
     logo_url: str = "https://mangabaka.dev/images/logo.png"
     website: str = "https://mangabaka.dev"
     attribution: str = f"Metadata provided by <a href='{website}'>{name}</a>"
@@ -226,7 +226,7 @@ class MangaBakaTalker(ComicTalker):
             test_url = urljoin(url, "series/10023")
             mb_response = requests.get(test_url, headers={"user-agent": "comictagger/" + self.version}).json()
 
-            if mb_response.get("id") == 10023:
+            if mb_response["status"] == 200:
                 return "The URL is valid", True
             else:
                 return "The URL is INVALID!", False
@@ -240,6 +240,8 @@ class MangaBakaTalker(ComicTalker):
         refresh_cache: bool = False,
         literal: bool = False,
         series_match_thresh: int = 90,
+        *,
+        on_rate_limit: RLCallBack | None = None,
     ) -> list[ComicSeries]:
         search_series_name = series_name
         logger.info(f"{self.name} searching: {search_series_name}")
@@ -268,7 +270,9 @@ class MangaBakaTalker(ComicTalker):
             "limit": 50,
         }
 
-        mb_response: MBResult = self._get_mb_content(urljoin(self.api_url, "series/search"), params)
+        mb_response: MBResult = self._get_mb_content(
+            urljoin(self.api_url, "series/search"), params, on_rate_limit=on_rate_limit
+        )
         mb_data: list[MBSeries] = cast(list[MBSeries], mb_response["data"])
         search_results: list[MBSeries] = []
 
@@ -290,7 +294,7 @@ class MangaBakaTalker(ComicTalker):
                 if stop_searching:
                     break
 
-            mb_response = self._get_mb_content(mb_response["pagination"]["next"], {})
+            mb_response = self._get_mb_content(mb_response["pagination"]["next"], {}, on_rate_limit=on_rate_limit)
             mb_data = cast(list[MBSeries], mb_response["data"])
             search_results.extend(s for s in mb_data)
 
@@ -314,7 +318,11 @@ class MangaBakaTalker(ComicTalker):
         return formatted_search_results
 
     def fetch_comic_data(
-        self, issue_id: str | None = None, series_id: str | None = None, issue_number: str = ""
+        self,
+        issue_id: str | None = None,
+        series_id: str | None = None,
+        issue_number: str = "",
+        on_rate_limit: RLCallBack | None = None,
     ) -> GenericMetadata:
         comic_data = GenericMetadata()
         # Could be sent "issue_id" only which is actually series_id
@@ -322,29 +330,29 @@ class MangaBakaTalker(ComicTalker):
             series_id = issue_id
 
         if series_id is not None:
-            return self._map_comic_issue_to_metadata(self._fetch_series(int(series_id)))
+            return self._map_comic_issue_to_metadata(self._fetch_series(int(series_id), on_rate_limit=on_rate_limit))
 
         return comic_data
 
-    def fetch_issues_in_series(self, series_id: str) -> list[GenericMetadata]:
+    def fetch_issues_in_series(self, series_id: str, on_rate_limit: RLCallBack | None = None) -> list[GenericMetadata]:
         # MangaBaka has no issue level data (yet)
         return [GenericMetadata()]
 
-    def _get_mb_content(self, url: str, params: dict[str, Any]) -> MBResult:
-        mb_response: MBResult = self._get_url_content(url, params)
+    def _get_mb_content(self, url: str, params: dict[str, Any], *, on_rate_limit: RLCallBack | None = None) -> MBResult:
+        mb_response: MBResult = self._get_url_content(url, params, on_rate_limit=on_rate_limit)
         if mb_response["status"] != 200:
             logger.debug(f"{self.name} query failed with error #{mb_response['status']}:  [{mb_response['message']}].")
             raise TalkerNetworkError(self.name, 0, f"{mb_response['status']}: {mb_response['message']}")
 
         return mb_response
 
-    def _get_url_content(self, url: str, params: dict[str, Any]) -> Any:
+    def _get_url_content(self, url: str, params: dict[str, Any], on_rate_limit: RLCallBack | None = None) -> Any:
         # if there is a 500 error, try a few more times before giving up
         limit_counter = 0
 
         for tries in range(1, 5):
             try:
-                with limiter.ratelimit("mb", delay=True):
+                with limiter.ratelimit("mb", delay=True, on_rate_limit=on_rate_limit):
                     logger.debug("Requesting: %s?%s", url, urlencode(params))
                     self.total_requests_made += 1
                     resp = requests.get(
@@ -469,10 +477,10 @@ class MangaBakaTalker(ComicTalker):
 
         return filtered_list
 
-    def fetch_series(self, series_id: str) -> ComicSeries:
-        return self._format_series(self._fetch_series(int(series_id)))
+    def fetch_series(self, series_id: str, on_rate_limit: RLCallBack | None = None) -> ComicSeries:
+        return self._format_series(self._fetch_series(int(series_id), on_rate_limit=on_rate_limit))
 
-    def _fetch_series(self, series_id: int) -> MBSeries:
+    def _fetch_series(self, series_id: int, on_rate_limit: RLCallBack | None = None) -> MBSeries:
         # Should almost always have the data cached from search
         cvc = ComicCacher(self.cache_folder, self.version)
         cached_series = cvc.get_series_info(str(series_id), self.id)
@@ -481,7 +489,7 @@ class MangaBakaTalker(ComicTalker):
             return json.loads(cached_series[0].data)
 
         series_url = urljoin(self.api_url, f"series/{series_id}")
-        mb_response: MBResult = self._get_mb_content(series_url, {})
+        mb_response: MBResult = self._get_mb_content(series_url, {}, on_rate_limit=on_rate_limit)
         mb_data: MBSeries = cast(MBSeries, mb_response["data"])
 
         # Cache raw data
@@ -494,11 +502,17 @@ class MangaBakaTalker(ComicTalker):
         return mb_data
 
     def fetch_issues_by_series_issue_num_and_year(
-        self, series_id_list: list[str], issue_number: str, year: str | int | None
+        self,
+        series_id_list: list[str],
+        issue_number: str,
+        year: str | int | None,
+        on_rate_limit: RLCallBack | None = None,
     ) -> list[GenericMetadata]:
         series_list = []
         for series_id in series_id_list:
-            series_list.append(self._map_comic_issue_to_metadata(self._fetch_series(int(series_id))))
+            series_list.append(
+                self._map_comic_issue_to_metadata(self._fetch_series(int(series_id), on_rate_limit=on_rate_limit))
+            )
 
         return series_list
 
