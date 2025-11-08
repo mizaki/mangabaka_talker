@@ -464,7 +464,7 @@ class MangaBakaTalker(ComicTalker):
             count_of_issues=series.get("total_chapters"),
             description=series.get("description", ""),
             id=str(series["id"]),
-            image_url=series["cover"].get("default"),
+            image_url=series["cover"].get("x250").get("x1"),
             name=series["title"],
             publisher=publisher,
             start_year=start_year,
@@ -556,7 +556,7 @@ class MangaBakaTalker(ComicTalker):
             series=series["title"],
         )
 
-        md._cover_image = ImageHash(URL=series["cover"]["default"], Hash=0, Kind="")
+        md._cover_image = ImageHash(URL=series["cover"]["x250"]["x1"], Hash=0, Kind="")
 
         if series.get("native_title") is not None:
             md.series_aliases.add(series["native_title"])
