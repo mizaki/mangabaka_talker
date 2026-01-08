@@ -198,11 +198,6 @@ class MangaBakaTalker(ComicTalker):
             help="Filter out all other 'types' other than selected",
         )
         parser.add_setting(
-            f"--{self.id}-download",
-            display_name="Download SQLite MangaBaka DB",
-            help="Download the SQLite MangaBaka DB to the cache directory",
-        )
-        parser.add_setting(
             f"--{self.id}-url",
             display_name="API URL",
             help=f"Use the given MangaBaka URL. (default: {self.default_api_url})",
@@ -212,11 +207,11 @@ class MangaBakaTalker(ComicTalker):
     def parse_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
         settings = super().parse_settings(settings)
 
-        self.use_series_start_as_volume = settings["mb_use_series_start_as_volume"]
-        self.use_original_publisher = settings["mb_use_original_publisher"]
-        self.age_filter = settings["mb_age_filter"]
-        self.filter_type = settings["mb_filter_type"]
-        self.filter_dojin = settings["mb_filter_dojin"]
+        self.use_series_start_as_volume = settings[f"{self.id}_use_series_start_as_volume"]
+        self.use_original_publisher = settings[f"{self.id}_use_original_publisher"]
+        self.age_filter = settings[f"{self.id}_age_filter"]
+        self.filter_type = settings[f"{self.id}_filter_type"]
+        self.filter_dojin = settings[f"{self.id}_filter_dojin"]
 
         # Create a filter with all accepted age rating
         self.age_filter_range = MBRATING[: MBRATING.index(self.age_filter) + 1]
@@ -238,32 +233,6 @@ class MangaBakaTalker(ComicTalker):
                 return "The URL is INVALID!", False
         except Exception:
             return "Failed to connect to the URL!", False
-
-    def download_file(self, settings: dict[str, Any], cache_path: pathlib.Path) -> tuple[str, bool]:
-        url = talker_utils.fix_url(settings[f"{self.id}_url"])
-        if not url:
-            url = self.default_api_url
-
-        try:
-            test_url = urljoin(url, "database/series.sqlite.tar.gz")
-            temp_tar_path = cache_path / "series.sqlite.tar.gz"
-            with requests.get(test_url, stream=True, headers={"user-agent": f"comictagger/{self.version}"}) as r:
-                if r.status_code != 200:
-                    return "Failed to download file!", False
-                with open(temp_tar_path, "wb") as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-
-            try:
-                with tarfile.open(temp_tar_path, "r:gz") as tar:
-                    tar.extractall(path=cache_path)
-                return "Successfully downloaded MB DB file", True
-            except Exception as e:
-                logger.error("Failed to extract MB DB file: %s", e)
-                return f"Failed to extract MB DB file: {e}", False
-        except Exception as e:
-            logger.debug("Failed to download MB DB %s", e)
-            return f"Failed to connect to the URL! {e}", False
 
     def search_for_series(
         self,
@@ -589,7 +558,7 @@ class MangaBakaTalker(ComicTalker):
             md.maturity_rating = series["content_rating"].capitalize()
 
         md.count_of_volumes = utils.xlate_int(series["final_volume"])
-        md.count_of_issues = utils.xlate_int(series["final_chapter"])
+        md.count_of_issues = utils.xlate_int(series["total_chapters"])
         md.year = utils.xlate_int(series["year"])
         md.description = series["description"]
 
